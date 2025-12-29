@@ -13,11 +13,14 @@ load_dotenv()
 # Add the middleware to trust the proxy headers from Caddy
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
 
+# Load the secret key from environment variables for security
+SECRET_KEY = os.getenv("SECRET_KEY", "a-default-secret-key-if-not-set")
+
 # The secure flag will be handled by the proxy. 
 # The connection between Caddy and FastAPI is HTTP.
 app.add_middleware(
     SessionMiddleware,
-    secret_key="change-this-in-prod",
+    secret_key=SECRET_KEY,
     same_site="lax",
     https_only=False, 
 )
