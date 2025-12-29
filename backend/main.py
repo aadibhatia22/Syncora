@@ -1,17 +1,23 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
-from routes import router as api_app
 import os
 from starlette.middleware.sessions import SessionMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from dotenv import load_dotenv
+
+from routes import router as api_app
+from database import engine, Base
+
 
 app = FastAPI()
 load_dotenv()
 
 # Add the middleware to trust the proxy headers from Caddy
 app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
+
+# Create the database tables on startup
+Base.metadata.create_all(bind=engine)
 
 # Load the secret key from environment variables for security
 SECRET_KEY = os.getenv("SECRET_KEY", "a-default-secret-key-if-not-set")
