@@ -1,0 +1,11 @@
+{
+    # This block is for global options
+    # It enables the internal CA for local HTTPS
+    local_certs
+}
+
+# Your site definition
+127.0.0.1 {
+    # This tells Caddy to proxy all requests to your FastAPI app
+    reverse_proxy 127.0.0.1:8000
+}

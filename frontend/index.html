@@ -1,30 +1,209 @@
- <!DOCTYPE html>
-   <html lang="en">
-   <head>
-       <meta charset="UTF-8">
-       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-       <title>OAuth Test</title>
-   </head>
-   <body>
-       <h1>Login with Google</h1>
-       <button id="google-login-btn">Login</button>
-       <div id="token">
-           <!-- Token will be displayed here -->
-       </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Syncora Event Tester</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        h1, h2 { color: #333; }
+        button { margin: 5px; }
+        pre { background-color: #f4f4f4; padding: 10px; border: 1px solid #ddd; white-space: pre-wrap; word-wrap: break-word; }
+        #event-form { margin-top: 20px; border: 1px solid #ccc; padding: 15px; }
+        #event-list { margin-top: 20px; }
+        .event-item { border: 1px solid #eee; padding: 10px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Syncora Event Tester</h1>
 
-       <script>
-           document.getElementById('google-login-btn').addEventListener('click', function() {
-               window.location.href = 'http://127.0.0.1:8000/auth/google/login';
-           });
+    <div id="login-section">
+        <h2>1. Login</h2>
+        <button id="google-login-btn">Login with Google</button>
+    </div>
 
-           // Extract the token from URL fragment and display
-           window.onload = function() {
-               const urlParams = new URLSearchParams(window.location.hash.replace('#', '?'));
-               const token = urlParams.get('token');
-               if (token) {
-                   document.getElementById('token').textContent = 'Received Token: ' + token;
-               }
-           };
-       </script>
-   </body>
-   </html>
+    <div id="auth-section" style="display: none;">
+        <h2>2. Authentication Info</h2>
+        <p><strong>JWT Token:</strong></p>
+        <pre id="token-display"></pre>
+        <button id="get-me-btn">Get My Info</button>
+        <button id="logout-btn">Logout</button>
+        <p><strong>My Info:</strong></p>
+        <pre id="user-info"></pre>
+    </div>
+
+    <div id="events-section" style="display: none;">
+        <h2>3. Create Event</h2>
+        <form id="event-form">
+            <label for="title">Title:</label><br>
+            <input type="text" id="title" name="title" required value="Test Event"><br><br>
+
+            <label for="start_datetime">Start:</label><br>
+            <input type="datetime-local" id="start_datetime" name="start_datetime" required><br><br>
+
+            <label for="end_datetime">End:</label><br>
+            <input type="datetime-local" id="end_datetime" name="end_datetime" required><br><br>
+
+            <label for="event_type">Type:</label><br>
+            <select id="event_type" name="event_type">
+                <option value="general_event">General Event</option>
+                <option value="school_task">School Task</option>
+            </select><br><br>
+
+            <button type="submit">Create Event</button>
+        </form>
+
+        <h2>4. My Events</h2>
+        <button id="list-events-btn">List My Events</button>
+        <div id="event-list"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'https://127.0.0.1';
+        let jwtToken = null;
+
+        // --- DOM Elements ---
+        const loginSection = document.getElementById('login-section');
+        const authSection = document.getElementById('auth-section');
+        const eventsSection = document.getElementById('events-section');
+        const tokenDisplay = document.getElementById('token-display');
+        const userInfo = document.getElementById('user-info');
+        const eventList = document.getElementById('event-list');
+
+        // --- API Call Helper ---
+        async function apiFetch(endpoint, options = {}) {
+            const headers = { 'Content-Type': 'application/json', ...options.headers };
+            if (jwtToken) {
+                headers['Authorization'] = `Bearer ${jwtToken}`;
+            }
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
+
+            if (!response.ok) {
+                let errorDetail = 'API request failed';
+                try {
+                    const error = await response.json();
+                    errorDetail = error.detail || JSON.stringify(error);
+                } catch (e) {
+                    errorDetail = await response.text();
+                }
+                throw new Error(errorDetail);
+            }
+
+            if (response.status === 204) {
+                return null;
+            }
+
+            return response.json();
+        }
+
+        // --- Event Handlers ---
+        document.getElementById('google-login-btn').addEventListener('click', () => {
+            window.location.href = `${API_BASE_URL}/auth/google/login`;
+        });
+
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            jwtToken = null;
+            window.location.href = '/frontend/index.html';
+        });
+
+        document.getElementById('get-me-btn').addEventListener('click', async () => {
+            try {
+                const data = await apiFetch('/users/me');
+                userInfo.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                userInfo.textContent = `Error: ${error.message}`;
+            }
+        });
+
+        document.getElementById('event-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const eventData = {
+                title: form.title.value,
+                start_datetime: form.start_datetime.value,
+                end_datetime: form.end_datetime.value,
+                event_type: form.event_type.value,
+            };
+            try {
+                await apiFetch('/events', {
+                    method: 'POST',
+                    body: JSON.stringify(eventData),
+                });
+                alert('Event created successfully!');
+                form.reset();
+                setDateTimeDefaults();
+                await listEvents();
+            } catch (error) {
+                alert(`Error creating event: ${error.message}`);
+            }
+        });
+
+        document.getElementById('list-events-btn').addEventListener('click', listEvents);
+
+        async function listEvents() {
+            try {
+                const events = await apiFetch('/events');
+                eventList.innerHTML = '';
+                if (!events || events.length === 0) {
+                    eventList.innerHTML = '<p>No events found.</p>';
+                    return;
+                }
+                events.forEach(event => {
+                    const eventDiv = document.createElement('div');
+                    eventDiv.className = 'event-item';
+                    eventDiv.innerHTML = `
+                        <strong>${event.title}</strong> (ID: ${event.id})<br>
+                        <small>Owner: ${event.owner_id}</small><br>
+                        <small>${new Date(event.start_datetime).toLocaleString()} to ${new Date(event.end_datetime).toLocaleString()}</small><br>
+                        <button class="delete-btn" data-event-id="${event.id}">Delete</button>
+                    `;
+                    eventList.appendChild(eventDiv);
+                });
+            } catch (error) {
+                eventList.innerHTML = `<p>Error loading events: ${error.message}</p>`;
+            }
+        }
+
+        eventList.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('delete-btn')) {
+                const eventId = e.target.dataset.eventId;
+                if (confirm(`Are you sure you want to delete event ${eventId}?`)) {
+                    try {
+                        await apiFetch(`/events/${eventId}`, { method: 'DELETE' });
+                        alert('Event deleted successfully!');
+                        await listEvents();
+                    } catch (error) {
+                        alert(`Error deleting event: ${error.message}`);
+                    }
+                }
+            }
+        });
+
+        // --- Initialization ---
+        function setDateTimeDefaults() {
+            const now = new Date();
+            const start = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            const end = new Date(now.getTime() - now.getTimezoneOffset() * 60000 + 3600000).toISOString().slice(0, 16);
+            document.getElementById('start_datetime').value = start;
+            document.getElementById('end_datetime').value = end;
+        }
+
+        window.onload = async function() {
+            const urlParams = new URLSearchParams(window.location.hash.replace('#', '?'));
+            const token = urlParams.get('token');
+            if (token) {
+                jwtToken = token;
+                tokenDisplay.textContent = jwtToken;
+                loginSection.style.display = 'none';
+                authSection.style.display = 'block';
+                eventsSection.style.display = 'block';
+
+                window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+
+                setDateTimeDefaults();
+                await listEvents();
+            }
+        };
+    </script>
+</body>
+</html>

@@ -10,7 +10,7 @@ from jose import jwt, JWTError
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
 
-from models import Event, events_db, User
+from models import Event, EventCreate, events_db, User
 
 # Load environment variables
 load_dotenv()
@@ -80,10 +80,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 # --- Routes ---
 @router.get("/auth/google/login")
 async def google_login(request: Request):
-    return await oauth.google.authorize_redirect(
-        request,
-        redirect_uri="http://127.0.0.1:8000/auth/google/callback"
-    )
+    # The external URL is HTTPS, but the redirect URI for the internal app is HTTP
+    # We will use the request's scheme to build the correct redirect URI
+    redirect_uri = request.url_for('google_callback')
+    return await oauth.google.authorize_redirect(request, str(redirect_uri))
+
 
 @router.get("/auth/google/callback")
 async def google_callback(request: Request):
@@ -118,25 +119,43 @@ async def get_all_users():
     return users_db_by_id
 
 @router.get("/events", response_model=List[Event])
-async def list_events():
-    return events_db
+async def list_events(current_user: dict = Depends(get_current_user)):
+    return [event for event in events_db if event.owner_id == current_user["id"]]
 
 @router.post("/events", response_model=Event)
-async def create_event(event: Event, current_user: dict = Depends(get_current_user)):
-    # You can associate the event with the user like this:
-    # event.owner_id = current_user["id"]
-    events_db.append(event)
-    return event
+async def create_event(event_data: EventCreate, current_user: dict = Depends(get_current_user)):
+    event_id = len(events_db) + 1
+    new_event = Event(
+        id=event_id,
+        owner_id=current_user["id"],
+        **event_data.dict()
+    )
+    events_db.append(new_event)
+    return new_event
 
 @router.get("/events/{event_id}", response_model=Event)
-async def get_event(event_id: int):
+async def get_event(event_id: int, current_user: dict = Depends(get_current_user)):
     for event in events_db:
         if event.id == event_id:
-            return event
+            if event.owner_id == current_user["id"]:
+                return event
+            else:
+                raise HTTPException(status_code=403, detail="Not authorized to view this event")
     raise HTTPException(status_code=404, detail="Event not found")
 
 @router.delete("/events/{event_id}", response_model=dict)
 async def delete_event(event_id: int, current_user: dict = Depends(get_current_user)):
-    # Add logic here to ensure only the event owner can delete it
-    events_db[:] = [event for event in events_db if event.id != event_id]
-    return {"detail": "Event deleted"}
+    event_to_delete = None
+    for event in events_db:
+        if event.id == event_id:
+            if event.owner_id == current_user["id"]:
+                event_to_delete = event
+                break
+            else:
+                raise HTTPException(status_code=403, detail="Not authorized to delete this event")
+    
+    if event_to_delete:
+        events_db.remove(event_to_delete)
+        return {"detail": "Event deleted"}
+    else:
+        raise HTTPException(status_code=404, detail="Event not found")
