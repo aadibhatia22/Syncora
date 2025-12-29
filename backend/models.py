@@ -1,13 +1,26 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr, SecretStr
 from enum import Enum
 
+
+#making a user
+class User(BaseModel):
+    id: int
+    email: EmailStr
+    password_hash: SecretStr
 
 class EventType(str, Enum):
     SCHOOL_TASK = "school_task"
     GENERAL_EVENT = "general_event"
 
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: SecretStr  # or use str if you prefer
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: SecretStr
 # Basic Task Model
 class Event(BaseModel):
     id: int

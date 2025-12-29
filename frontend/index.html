@@ -1,0 +1,30 @@
+ <!DOCTYPE html>
+   <html lang="en">
+   <head>
+       <meta charset="UTF-8">
+       <meta name="viewport" content="width=device-width, initial-scale=1.0">
+       <title>OAuth Test</title>
+   </head>
+   <body>
+       <h1>Login with Google</h1>
+       <button id="google-login-btn">Login</button>
+       <div id="token">
+           <!-- Token will be displayed here -->
+       </div>
+
+       <script>
+           document.getElementById('google-login-btn').addEventListener('click', function() {
+               window.location.href = 'http://127.0.0.1:8000/auth/google/login';
+           });
+
+           // Extract the token from URL fragment and display
+           window.onload = function() {
+               const urlParams = new URLSearchParams(window.location.hash.replace('#', '?'));
+               const token = urlParams.get('token');
+               if (token) {
+                   document.getElementById('token').textContent = 'Received Token: ' + token;
+               }
+           };
+       </script>
+   </body>
+   </html>
