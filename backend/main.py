@@ -14,13 +14,18 @@ app = FastAPI()
 load_dotenv()
 
 # Add the middleware to trust the proxy headers from Caddy
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="127.0.0.1")
+app.add_middleware(
+    ProxyHeadersMiddleware,
+    trusted_hosts="*"
+)
 
 # Create the database tables on startup
 Base.metadata.create_all(bind=engine)
 
 # Load the secret key from environment variables for security
-SECRET_KEY = os.getenv("SECRET_KEY", "a-default-secret-key-if-not-set")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+        raise RuntimeError("SECRET_KEY not set")
 
 # The secure flag will be handled by the proxy. 
 # The connection between Caddy and FastAPI is HTTP.

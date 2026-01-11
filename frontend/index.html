@@ -4,14 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Syncora Event Tester</title>
+    <link rel="icon" type="image/png" href="/frontend/favicon.png" />
     <style>
         body { font-family: sans-serif; margin: 2em; }
         h1, h2 { color: #333; }
         button { margin: 5px; }
         pre { background-color: #f4f4f4; padding: 10px; border: 1px solid #ddd; white-space: pre-wrap; word-wrap: break-word; }
         #event-form { margin-top: 20px; border: 1px solid #ccc; padding: 15px; }
+        #update-event-form { border: 1px solid #ccc; padding: 15px; }
         #event-list { margin-top: 20px; }
         .event-item { border: 1px solid #eee; padding: 10px; margin-bottom: 10px; }
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
+        .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 500px; }
+        .close-btn { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -58,9 +63,38 @@
         <div id="event-list"></div>
     </div>
 
+    <!-- Update Event Modal -->
+    <div id="update-event-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <h2>Edit Event</h2>
+            <form id="update-event-form">
+                <input type="hidden" id="update-event-id" name="eventId">
+
+                <label for="update-title">Title:</label><br>
+                <input type="text" id="update-title" name="title"><br><br>
+
+                <label for="update-start_datetime">Start:</label><br>
+                <input type="datetime-local" id="update-start_datetime" name="start_datetime"><br><br>
+
+                <label for="update-end_datetime">End:</label><br>
+                <input type="datetime-local" id="update-end_datetime" name="end_datetime"><br><br>
+
+                <label for="update-event_type">Type:</label><br>
+                <select id="update-event_type" name="event_type">
+                    <option value="general_event">General Event</option>
+                    <option value="school_task">School Task</option>
+                </select><br><br>
+
+                <button type="submit">Save Changes</button>
+            </form>
+        </div>
+    </div>
+
     <script>
         const API_BASE_URL = 'https://127.0.0.1';
         let jwtToken = null;
+        let currentEvents = []; // Cache for events
 
         // --- DOM Elements ---
         const loginSection = document.getElementById('login-section');
@@ -69,6 +103,8 @@
         const tokenDisplay = document.getElementById('token-display');
         const userInfo = document.getElementById('user-info');
         const eventList = document.getElementById('event-list');
+        const updateModal = document.getElementById('update-event-modal');
+        const updateForm = document.getElementById('update-event-form');
 
         // --- API Call Helper ---
         async function apiFetch(endpoint, options = {}) {
@@ -142,19 +178,20 @@
 
         async function listEvents() {
             try {
-                const events = await apiFetch('/events');
+                currentEvents = await apiFetch('/events'); // Store events in cache
                 eventList.innerHTML = '';
-                if (!events || events.length === 0) {
+                if (!currentEvents || currentEvents.length === 0) {
                     eventList.innerHTML = '<p>No events found.</p>';
                     return;
                 }
-                events.forEach(event => {
+                currentEvents.forEach(event => {
                     const eventDiv = document.createElement('div');
                     eventDiv.className = 'event-item';
                     eventDiv.innerHTML = `
                         <strong>${event.title}</strong> (ID: ${event.id})<br>
                         <small>Owner: ${event.owner_id}</small><br>
                         <small>${new Date(event.start_datetime).toLocaleString()} to ${new Date(event.end_datetime).toLocaleString()}</small><br>
+                        <button class="update-btn" data-event-id="${event.id}">Update</button>
                         <button class="delete-btn" data-event-id="${event.id}">Delete</button>
                     `;
                     eventList.appendChild(eventDiv);
@@ -165,7 +202,7 @@
         }
 
         eventList.addEventListener('click', async (e) => {
-            if (e.target.classList.contains('delete-btn')) {
+            if (e.target.matches('.delete-btn')) {
                 const eventId = e.target.dataset.eventId;
                 if (confirm(`Are you sure you want to delete event ${eventId}?`)) {
                     try {
@@ -176,6 +213,61 @@
                         alert(`Error deleting event: ${error.message}`);
                     }
                 }
+            } else if (e.target.matches('.update-btn')) {
+                const eventId = e.target.dataset.eventId;
+                openUpdateModal(eventId);
+            }
+        });
+
+        // --- Update Modal Logic ---
+        function openUpdateModal(eventId) {
+            const event = currentEvents.find(e => e.id == eventId);
+            if (!event) {
+                alert('Could not find event data.');
+                return;
+            }
+
+            // Pre-fill the form
+            document.getElementById('update-event-id').value = event.id;
+            document.getElementById('update-title').value = event.title;
+            document.getElementById('update-event_type').value = event.event_type;
+
+            // Handle datetime-local format which needs YYYY-MM-DDTHH:mm
+            document.getElementById('update-start_datetime').value = new Date(new Date(event.start_datetime).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+            document.getElementById('update-end_datetime').value = new Date(new Date(event.end_datetime).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+            updateModal.style.display = 'block';
+        }
+
+        function closeUpdateModal() {
+            updateModal.style.display = 'none';
+            updateForm.reset();
+        }
+
+        document.querySelector('.close-btn').addEventListener('click', closeUpdateModal);
+        window.addEventListener('click', (e) => {
+            if (e.target == updateModal) {
+                closeUpdateModal();
+            }
+        });
+
+        updateForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const eventId = document.getElementById('update-event-id').value;
+            const updateData = {
+                title: document.getElementById('update-title').value,
+                start_datetime: document.getElementById('update-start_datetime').value,
+                end_datetime: document.getElementById('update-end_datetime').value,
+                event_type: document.getElementById('update-event_type').value,
+            };
+
+            try {
+                await apiFetch(`/events/${eventId}`, { method: 'PUT', body: JSON.stringify(updateData) });
+                alert('Event updated successfully!');
+                closeUpdateModal();
+                await listEvents();
+            } catch (error) {
+                alert(`Error updating event: ${error.message}`);
             }
         });
 

@@ -1,7 +1,7 @@
 from typing import List
 import os
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
 from fastapi.responses import RedirectResponse
 from starlette.config import Config
 from authlib.integrations.starlette_client import OAuth
@@ -9,6 +9,11 @@ from jose import jwt, JWTError
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
 from sqlalchemy.orm import Session
+import pytesseract
+from PIL import Image
+import io
+from pdf2image import convert_from_bytes
+
 
 import models
 import schemas
@@ -149,3 +154,36 @@ async def delete_event(event_id: int, current_user: models.User = Depends(get_cu
     db.delete(event_to_delete)
     db.commit()
     return {"detail": "Event deleted"}
+
+
+@router.post("/abcabc")
+async def perform_ocr(file: UploadFile = File(...)):
+    # Read file bytes ONCE
+    file_bytes = await file.read()
+
+    content_type = file.content_type.lower()
+
+    try:
+        if content_type in ("image/jpeg", "image/png"):
+            image = Image.open(io.BytesIO(file_bytes))
+            text = pytesseract.image_to_string(image)
+
+        elif content_type == "application/pdf":
+            images = convert_from_bytes(file_bytes)
+            text = "".join(
+                pytesseract.image_to_string(img) for img in images
+            )
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid file format. Only JPEG, PNG, or PDF allowed."
+            )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"OCR processing failed: {str(e)}"
+        )
+
+    return {"text": text}
