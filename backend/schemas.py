@@ -59,3 +59,7 @@ class AssignmentRequest(BaseModel):
 class FileData(BaseModel):
     file_base:str
     file_type: FileType
+
+class CreateAssignmentRequest(BaseModel):
+    assignment_text: str
+    custom_instructions: Optional[str] = ""

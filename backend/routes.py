@@ -1,7 +1,7 @@
 from typing import List
 import os
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile
+from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile, Query
 from fastapi.responses import RedirectResponse
 from starlette.config import Config
 from authlib.integrations.starlette_client import OAuth
@@ -15,11 +15,14 @@ import io
 from pdf2image import convert_from_bytes
 import requests
 import LLM
-
+from typing import Optional
 import models
 import schemas
 import crud
 from database import SessionLocal
+import schemas
+import httpx
+
 
 # Load environment variables
 load_dotenv()
@@ -177,7 +180,8 @@ async def delete_event(event_id: int, current_user: models.User = Depends(get_cu
     db.commit()
     return {"detail": "Event deleted"}
 
-
+#OLD CODE
+""" 
 @router.post("/OCR")
 async def perform_ocr(file: UploadFile = File(...)):
     # Read file bytes ONCE
@@ -209,12 +213,15 @@ async def perform_ocr(file: UploadFile = File(...)):
         )
     return {"text": text}
 
-@router.post("/LLM/{assignmentText}")
-async def perform_llm(assignmentText):
+@router.post("/LLM/{assignment_text}")
+async def perform_llm(
+    assignment_text: str,
+    custom_instructions: Optional[str] = Query(default="")
+):
     try:
         #assignment = assignmentText.json()
         #ocr_text = assignment["text"]
-        ocr_text = assignmentText
+        ocr_text = assignment_text
         system_message = {
             "role": "system",
             "content": "You have an extremely important job. You will be passed in assignments (CONVERTED TO TEXT AND USUALLY FOR SCHOOL) and YOUR TASK is to accurately estimate how long the assigment will take a student in minutes. YOUR OUTPUT FORMAT SHOULD JUST BE A NUMBER (in minutes) of how long the assigment would take. If the media provided does not look like an assignment output 'ASSIGNMENT NOT DETECTED'. You may recieve custom instructions about the assingment such as, the student has to only do even problems which may effect your time estimation. Assume the student works at an average high school pace and be lenient (remember they are not robots!). Make sure your response does not contain any \\n characters "
@@ -224,6 +231,8 @@ async def perform_llm(assignmentText):
             "content": (
                 "ASSIGNMENT:\n"
                 f"{ocr_text}"
+                "CUSTOM INSTRUCTIONS:\n"
+                f"{custom_instructions or 'None'}"
             )
         }
         completion = LLM.client.chat.completions.create(
@@ -239,11 +248,16 @@ async def perform_llm(assignmentText):
         )
 
 
+
+
+
+
+
 @router.post("/EstimateTime")
 async def estimate_time(file: UploadFile = File(...)):
-    """
+    """"""
     Integrate OCR and LLM to estimate the time required for an assignment.
-    """
+    """"""
     # Step 1: Call OCR method to extract text from the uploaded file
     ocr_result = await perform_ocr(file)
 
@@ -255,3 +269,110 @@ async def estimate_time(file: UploadFile = File(...)):
 
     # Return the estimate time determined by the LLM
     return llm_response
+
+@router.post("/create-assignment")
+async def create_assignment(payload: schemas.CreateAssignmentRequest):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"http://localhost:8000/LLM/{payload.assignment_text}",
+                params={"custom_instructions": payload.custom_instructions}
+            )
+
+        response.raise_for_status()
+        llm_result = response.json()
+
+        return {
+            "estimated_minutes": llm_result["response"]
+        }
+
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+"""
+
+
+async def ocr_from_file(file: UploadFile) -> str:
+    file_bytes = await file.read()
+    content_type = file.content_type.lower()
+
+    if content_type in ("image/jpeg", "image/png"):
+        image = Image.open(io.BytesIO(file_bytes))
+        return pytesseract.image_to_string(image)
+
+    if content_type == "application/pdf":
+        images = convert_from_bytes(file_bytes)
+        return "".join(pytesseract.image_to_string(img) for img in images)
+
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid file format. Only JPEG, PNG, or PDF allowed."
+    )
+
+async def estimate_assignment_time(
+    assignment_text: str,
+    custom_instructions: str = ""
+) -> str:
+    system_message = {
+        "role": "system",
+        "content": (
+            "You have an extremely important job. You will be passed in assignments "
+            "(CONVERTED TO TEXT AND USUALLY FOR SCHOOL) and YOUR TASK is to accurately "
+            "estimate how long the assigment will take a student in minutes. "
+            "YOUR OUTPUT FORMAT SHOULD JUST BE A NUMBER (in minutes). "
+            "If the media provided does not look like an assignment output "
+            "'ASSIGNMENT NOT DETECTED'. Assume an average high school pace. "
+            "Make sure your response does not contain any \\n characters."
+        )
+    }
+
+    user_message = {
+        "role": "user",
+        "content": (
+            "ASSIGNMENT:\n"
+            f"{assignment_text}\n\n"
+            "CUSTOM INSTRUCTIONS:\n"
+            f"{custom_instructions or 'None'}"
+        )
+    }
+
+    completion = LLM.client.chat.completions.create(
+        model="google/gemma-3-27b-it",
+        messages=[system_message, user_message]
+    )
+
+    return completion.choices[0].message.content
+
+
+@router.post("/OCR")
+async def perform_ocr(file: UploadFile = File(...)):
+    text = await ocr_from_file(file)
+    return {"text": text}
+
+
+@router.post("/LLM")
+async def perform_llm(
+    assignment_text: str,
+    custom_instructions: Optional[str] = Query(default="")
+):
+    response = await estimate_assignment_time(
+        assignment_text,
+        custom_instructions
+    )
+    return {"response": response}
+
+@router.post("/EstimateTime")
+async def estimate_time(
+    file: UploadFile = File(...),
+    custom_instructions: Optional[str] = Query(default="")
+):
+    assignment_text = await ocr_from_file(file)
+
+    estimate = await estimate_assignment_time(
+        assignment_text,
+        custom_instructions
+    )
+
+    return {"response": estimate}
+
