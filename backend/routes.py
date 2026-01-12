@@ -13,10 +13,12 @@ import pytesseract
 from PIL import Image
 import io
 from pdf2image import convert_from_bytes
-
+import requests
+import LLM
 
 import models
 import schemas
+import crud
 from database import SessionLocal
 
 # Load environment variables
@@ -141,6 +143,26 @@ async def get_event(event_id: int, current_user: models.User = Depends(get_curre
         raise HTTPException(status_code=403, detail="Not authorized to view this event")
     return event
 
+@router.put("/events/{event_id}", response_model=schemas.Event)
+def update_single_event(
+    event_id: int,
+    event_update: schemas.EventUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update an existing event by its ID.
+    """
+    # First, retrieve the event from the database
+    db_event = crud.get_event(db, event_id=event_id)
+
+    if db_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Now, pass the existing event and the update data to the CRUD function
+    updated_event = crud.update_event(db=db, db_event=db_event, update_data=event_update)
+
+    return updated_event
+
 @router.delete("/events/{event_id}", response_model=dict)
 async def delete_event(event_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     event_to_delete = db.query(models.Event).filter(models.Event.id == event_id).first()
@@ -156,7 +178,7 @@ async def delete_event(event_id: int, current_user: models.User = Depends(get_cu
     return {"detail": "Event deleted"}
 
 
-@router.post("/abcabc")
+@router.post("/OCR")
 async def perform_ocr(file: UploadFile = File(...)):
     # Read file bytes ONCE
     file_bytes = await file.read()
@@ -185,5 +207,51 @@ async def perform_ocr(file: UploadFile = File(...)):
             status_code=400,
             detail=f"OCR processing failed: {str(e)}"
         )
-
     return {"text": text}
+
+@router.post("/LLM/{assignmentText}")
+async def perform_llm(assignmentText):
+    try:
+        #assignment = assignmentText.json()
+        #ocr_text = assignment["text"]
+        ocr_text = assignmentText
+        system_message = {
+            "role": "system",
+            "content": "You have an extremely important job. You will be passed in assignments (CONVERTED TO TEXT AND USUALLY FOR SCHOOL) and YOUR TASK is to accurately estimate how long the assigment will take a student in minutes. YOUR OUTPUT FORMAT SHOULD JUST BE A NUMBER (in minutes) of how long the assigment would take. If the media provided does not look like an assignment output 'ASSIGNMENT NOT DETECTED'. You may recieve custom instructions about the assingment such as, the student has to only do even problems which may effect your time estimation. Assume the student works at an average high school pace and be lenient (remember they are not robots!). Make sure your response does not contain any \\n characters "
+        }
+        user_message = {
+            "role": "user",
+            "content": (
+                "ASSIGNMENT:\n"
+                f"{ocr_text}"
+            )
+        }
+        completion = LLM.client.chat.completions.create(
+            model="google/gemma-3-27b-it",
+            messages=[system_message, user_message]
+        )
+        response_text = completion.choices[0].message.content
+        return {"response": response_text}
+    except requests.exceptions.JSONDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="INVALID INPUT, JSON REQUIRED"
+        )
+
+
+@router.post("/EstimateTime")
+async def estimate_time(file: UploadFile = File(...)):
+    """
+    Integrate OCR and LLM to estimate the time required for an assignment.
+    """
+    # Step 1: Call OCR method to extract text from the uploaded file
+    ocr_result = await perform_ocr(file)
+
+    # Extract text for use in LLM processing
+    assignment_text = ocr_result["text"]
+
+    # Step 2: Call the LLM method with the extracted text
+    llm_response = await perform_llm(assignment_text)
+
+    # Return the estimate time determined by the LLM
+    return llm_response

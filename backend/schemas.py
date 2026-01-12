@@ -51,6 +51,11 @@ class Event(EventBase):
 
 
 
+class AssignmentRequest(BaseModel):
+    assignment_text: str
+    custom_instructions: Optional[str]
+
+
 class FileData(BaseModel):
     file_base:str
     file_type: FileType
