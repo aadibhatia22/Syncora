@@ -1,7 +1,7 @@
 from typing import List
 import os
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile, Query
+from fastapi import APIRouter, HTTPException, Depends, Request, File, UploadFile, Query, Form
 from fastapi.responses import RedirectResponse
 from starlette.config import Config
 from authlib.integrations.starlette_client import OAuth
@@ -180,117 +180,6 @@ async def delete_event(event_id: int, current_user: models.User = Depends(get_cu
     db.commit()
     return {"detail": "Event deleted"}
 
-#OLD CODE
-""" 
-@router.post("/OCR")
-async def perform_ocr(file: UploadFile = File(...)):
-    # Read file bytes ONCE
-    file_bytes = await file.read()
-
-    content_type = file.content_type.lower()
-
-    try:
-        if content_type in ("image/jpeg", "image/png"):
-            image = Image.open(io.BytesIO(file_bytes))
-            text = pytesseract.image_to_string(image)
-
-        elif content_type == "application/pdf":
-            images = convert_from_bytes(file_bytes)
-            text = "".join(
-                pytesseract.image_to_string(img) for img in images
-            )
-
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid file format. Only JPEG, PNG, or PDF allowed."
-            )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"OCR processing failed: {str(e)}"
-        )
-    return {"text": text}
-
-@router.post("/LLM/{assignment_text}")
-async def perform_llm(
-    assignment_text: str,
-    custom_instructions: Optional[str] = Query(default="")
-):
-    try:
-        #assignment = assignmentText.json()
-        #ocr_text = assignment["text"]
-        ocr_text = assignment_text
-        system_message = {
-            "role": "system",
-            "content": "You have an extremely important job. You will be passed in assignments (CONVERTED TO TEXT AND USUALLY FOR SCHOOL) and YOUR TASK is to accurately estimate how long the assigment will take a student in minutes. YOUR OUTPUT FORMAT SHOULD JUST BE A NUMBER (in minutes) of how long the assigment would take. If the media provided does not look like an assignment output 'ASSIGNMENT NOT DETECTED'. You may recieve custom instructions about the assingment such as, the student has to only do even problems which may effect your time estimation. Assume the student works at an average high school pace and be lenient (remember they are not robots!). Make sure your response does not contain any \\n characters "
-        }
-        user_message = {
-            "role": "user",
-            "content": (
-                "ASSIGNMENT:\n"
-                f"{ocr_text}"
-                "CUSTOM INSTRUCTIONS:\n"
-                f"{custom_instructions or 'None'}"
-            )
-        }
-        completion = LLM.client.chat.completions.create(
-            model="google/gemma-3-27b-it",
-            messages=[system_message, user_message]
-        )
-        response_text = completion.choices[0].message.content
-        return {"response": response_text}
-    except requests.exceptions.JSONDecodeError:
-        raise HTTPException(
-            status_code=400,
-            detail="INVALID INPUT, JSON REQUIRED"
-        )
-
-
-
-
-
-
-
-@router.post("/EstimateTime")
-async def estimate_time(file: UploadFile = File(...)):
-    """"""
-    Integrate OCR and LLM to estimate the time required for an assignment.
-    """"""
-    # Step 1: Call OCR method to extract text from the uploaded file
-    ocr_result = await perform_ocr(file)
-
-    # Extract text for use in LLM processing
-    assignment_text = ocr_result["text"]
-
-    # Step 2: Call the LLM method with the extracted text
-    llm_response = await perform_llm(assignment_text)
-
-    # Return the estimate time determined by the LLM
-    return llm_response
-
-@router.post("/create-assignment")
-async def create_assignment(payload: schemas.CreateAssignmentRequest):
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"http://localhost:8000/LLM/{payload.assignment_text}",
-                params={"custom_instructions": payload.custom_instructions}
-            )
-
-        response.raise_for_status()
-        llm_result = response.json()
-
-        return {
-            "estimated_minutes": llm_result["response"]
-        }
-
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-"""
 
 
 async def ocr_from_file(file: UploadFile) -> str:
@@ -376,3 +265,42 @@ async def estimate_time(
 
     return {"response": estimate}
 
+
+#ASSIGNMENT FULL CREATIONS
+@router.post("/assignments", response_model=schemas.Assignment)
+async def create_assignment(assignment_data: schemas.CreateAssignment, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    new_assignment = models.Assignment(
+        **assignment_data.model_dump(),
+        owner_id=current_user.id
+    )
+    db.add(new_assignment)
+    db.commit()
+    db.refresh(new_assignment)
+    return new_assignment
+
+@router.post("/assignments/upload", response_model=schemas.Assignment)
+async def create_assignment_with_file(
+    title: str = Form(...),
+    subject: str = Form(...),
+    file: UploadFile = File(...),
+    custom_instructions: Optional[str] = Form(None),
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    assignment_text = await ocr_from_file(file)
+    estimated_time_str = await estimate_assignment_time(assignment_text, custom_instructions or "")
+    try:
+        estimated_minutes = int(estimated_time_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Could not estimate time for the assignment. The file might not be a valid assignment.")
+
+    new_assignment = models.Assignment(
+        title=title,
+        subject=subject,
+        estimated_minutes=estimated_minutes,
+        owner_id=current_user.id
+    )
+    db.add(new_assignment)
+    db.commit()
+    db.refresh(new_assignment)
+    return new_assignment

@@ -8,10 +8,7 @@ class EventType(str, Enum):
     SCHOOL_TASK = "school_task"
     GENERAL_EVENT = "general_event"
 
-class FileType (str, Enum):
-    IMAGE = "image"
-    PDF = "pdf"
-    JPEG = "jpeg"
+
 
 # Model for creating an event, owner_id will be added by the backend
 class EventBase(BaseModel):
@@ -50,16 +47,29 @@ class Event(EventBase):
         from_attributes = True
 
 
+class AssignmentBase(BaseModel):
+    title: str
+    subject: str
+    estimated_minutes: int
 
-class AssignmentRequest(BaseModel):
-    assignment_text: str
-    custom_instructions: Optional[str]
+class CreateAssignment(AssignmentBase):
+    pass
+
+class UpdateAssignment(BaseModel):
+    title: Optional[str]
+    subject: Optional[str]
+    estimated_minutes: Optional[int]
+
+class Assignment(AssignmentBase):
+    id: int
+    owner_id: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 
-class FileData(BaseModel):
-    file_base:str
-    file_type: FileType
 
-class CreateAssignmentRequest(BaseModel):
-    assignment_text: str
-    custom_instructions: Optional[str] = ""
+
+
