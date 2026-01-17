@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from database import Base
-from schemas import EventType
+
 
 
 class User(Base):
@@ -24,7 +24,7 @@ class Event(Base):
     title = Column(String, index=True, nullable=False)
     start_datetime = Column(DateTime, nullable=False)
     end_datetime = Column(DateTime, nullable=False)
-    event_type = Column(Enum(EventType), nullable=False)
+    description = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -42,6 +42,6 @@ class Assignment(Base):
     estimated_minutes = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
+    description = Column(String, nullable=True)
     owner_id = Column(String, ForeignKey("users.id"))
     owner = relationship("User", back_populates="assignments")

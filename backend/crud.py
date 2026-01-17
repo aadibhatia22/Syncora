@@ -51,3 +51,28 @@ def update_event(db: Session, db_event: models.Event, update_data: schemas.Event
     db.commit()
     db.refresh(db_event)
     return db_event
+
+def get_assignment(db: Session, assignment_id: int):
+    """Fetches a single assignment by its ID."""
+    return db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
+
+def update_assignment(db: Session, db_assignment: models.Assignment, update_data: schemas.UpdateAssignment) -> models.Assignment:
+    """
+    Updates an assignment record in the database.
+
+    Args:
+        db: The SQLAlchemy database session.
+        db_assignment: The existing assignment model instance from the database.
+        update_data: A Pydantic schema with the fields to update.
+
+    Returns:
+        The updated assignment model instance.
+    """
+    update_dict = update_data.model_dump(exclude_unset=True)
+
+    for key, value in update_dict.items():
+        setattr(db_assignment, key, value)
+
+    db.commit()
+    db.refresh(db_assignment)
+    return db_assignment

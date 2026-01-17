@@ -20,7 +20,6 @@ import models
 import schemas
 import crud
 from database import SessionLocal
-import schemas
 import httpx
 
 
@@ -119,7 +118,7 @@ async def create_event_route(event_data: schemas.EventCreate, current_user: mode
 
 @router.get("/events/{event_id}", response_model=schemas.Event)
 async def get_event(event_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    event = db.query(models.Event).filter(models.Event.id == event_id).first()
+    event = crud.get_event(db, event_id=event_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     if event.owner_id != current_user.id:
@@ -130,32 +129,29 @@ async def get_event(event_id: int, current_user: models.User = Depends(get_curre
 def update_single_event(
     event_id: int,
     event_update: schemas.EventUpdate,
+    current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Update an existing event by its ID.
-    """
-    # First, retrieve the event from the database
     db_event = crud.get_event(db, event_id=event_id)
-
     if db_event is None:
         raise HTTPException(status_code=404, detail="Event not found")
+    if db_event.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this event")
 
-    # Now, pass the existing event and the update data to the CRUD function
     updated_event = crud.update_event(db=db, db_event=db_event, update_data=event_update)
-
     return updated_event
 
 @router.delete("/events/{event_id}", response_model=dict)
-async def delete_event(event_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    event_to_delete = db.query(models.Event).filter(models.Event.id == event_id).first()
-    
+async def delete_event(event_id: int, current_user: models.User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    event_to_delete = crud.get_event(db, event_id=event_id)
+
     if not event_to_delete:
         raise HTTPException(status_code=404, detail="Event not found")
-    
+
     if event_to_delete.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to delete this event")
-    
+
     db.delete(event_to_delete)
     db.commit()
     return {"detail": "Event deleted"}
@@ -264,6 +260,7 @@ async def create_assignment_with_file(
     subject: str = Form(...),
     file: UploadFile = File(...),
     custom_instructions: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -278,9 +275,63 @@ async def create_assignment_with_file(
         title=title,
         subject=subject,
         estimated_minutes=estimated_minutes,
+        description=description,
         owner_id=current_user.id
     )
     db.add(new_assignment)
     db.commit()
     db.refresh(new_assignment)
     return new_assignment
+
+
+
+
+
+@router.get("/assignments", response_model=List[schemas.Assignment])
+async def list_assignments(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return db.query(models.Assignment).filter(models.Assignment.owner_id == current_user.id).all()
+
+
+@router.get("/assignments/{assignment_id}", response_model=schemas.Assignment)
+async def get_single_assignment(assignment_id: int, current_user: models.User = Depends(get_current_user),
+                                db: Session = Depends(get_db)):
+    assignment = crud.get_assignment(db, assignment_id=assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    if assignment.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this assignment")
+    return assignment
+
+
+
+@router.put("/assignments/{assignment_id}", response_model=schemas.Assignment)
+def update_single_assignment(
+        assignment_id: int,
+        assignment_update: schemas.UpdateAssignment,
+        current_user: models.User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+):
+    db_assignment = crud.get_assignment(db, assignment_id=assignment_id)
+    if db_assignment is None:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    if db_assignment.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this assignment")
+
+    updated_assignment = crud.update_assignment(db=db, db_assignment=db_assignment, update_data=assignment_update)
+    return updated_assignment
+
+
+@router.delete("/assignments/{assignment_id}", response_model=dict)
+async def delete_assignment(assignment_id: int, current_user: models.User = Depends(get_current_user),
+                            db: Session = Depends(get_db)):
+    assignment_to_delete = crud.get_assignment(db, assignment_id=assignment_id)
+
+    if not assignment_to_delete:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    if assignment_to_delete.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this assignment")
+
+    db.delete(assignment_to_delete)
+    db.commit()
+    return {"detail": "Assignment deleted"}
