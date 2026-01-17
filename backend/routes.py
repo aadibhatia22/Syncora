@@ -54,20 +54,6 @@ def get_db():
     finally:
         db.close()
 
-# --- User CRUD Functions ---
-def get_user_by_google_sub(db: Session, google_sub: str):
-    return db.query(models.User).filter(models.User.google_sub == google_sub).first()
-
-def get_user_by_id(db: Session, user_id: str):
-    return db.query(models.User).filter(models.User.id == user_id).first()
-
-def create_user(db: Session, email: str, google_sub: str):
-    db_user = models.User(id=f"user_{google_sub}", email=email, google_sub=google_sub)
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
-
 # --- Authentication Dependencies ---
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
@@ -83,7 +69,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     except JWTError:
         raise credentials_exception
     
-    user = get_user_by_id(db, user_id)
+    user = crud.get_user_by_id(db, user_id)
     if user is None:
         raise credentials_exception
     return user
@@ -104,9 +90,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         
     google_sub = userinfo["sub"]
 
-    user = get_user_by_google_sub(db, google_sub=google_sub)
+    user = crud.get_user_by_google_sub(db, google_sub=google_sub)
     if not user:
-        user = create_user(
+        print("IN THE LOOP")
+        user = crud.create_user(
             db=db,
             email=userinfo.get("email"),
             google_sub=google_sub
@@ -127,15 +114,8 @@ async def list_events(current_user: models.User = Depends(get_current_user), db:
     return db.query(models.Event).filter(models.Event.owner_id == current_user.id).all()
 
 @router.post("/events", response_model=schemas.Event)
-async def create_event(event_data: schemas.EventCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    new_event = models.Event(
-        **event_data.model_dump(),
-        owner_id=current_user.id
-    )
-    db.add(new_event)
-    db.commit()
-    db.refresh(new_event)
-    return new_event
+async def create_event_route(event_data: schemas.EventCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return crud.create_event(db=db, event=event_data, owner_id=current_user.id)
 
 @router.get("/events/{event_id}", response_model=schemas.Event)
 async def get_event(event_id: int, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):

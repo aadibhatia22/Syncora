@@ -25,11 +25,6 @@ class Event(Base):
     start_datetime = Column(DateTime, nullable=False)
     end_datetime = Column(DateTime, nullable=False)
     event_type = Column(Enum(EventType), nullable=False)
-    subject = Column(String, nullable=True)
-    priority = Column(Integer, nullable=True)
-    description = Column(String, nullable=True)
-    estimated_minutes = Column(Integer, nullable=True)
-    status = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
